@@ -60,6 +60,15 @@ public:
             return false;
         read_ready_ = false;
 
+        // --- Read status first ---
+        uint16_t status = readRegister16(REG_STATUS);
+        printf("STATUS = 0x%04X\n", status);
+
+        if ((status & 0x0001) == 0) {
+            printf("⚠️  Data not ready yet (DRDY=0)\n");
+            return false;
+        }
+
         // --- Read 12 bytes (W,X,Y) ---
         uint8_t cmd = REG_RESULTS;
         uint8_t buf[12];
@@ -73,7 +82,6 @@ public:
         for (int i = 0; i < 12; ++i) printf("%02X ", buf[i]);
         printf("\n");
 
-        // --- Decode ---
         uint32_t raw[3] = {0};
         for (int ch = 0; ch < 3; ++ch) {
             uint8_t e_msb = buf[4 * ch];
