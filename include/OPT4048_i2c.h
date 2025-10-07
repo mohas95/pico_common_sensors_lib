@@ -71,6 +71,11 @@ public:
             return false;
         }
 
+        // 🔍 Print raw data for debugging
+        printf("Raw frame: ");
+        for (int i = 0; i < 18; ++i) printf("%02X ", buf[i]);
+        printf("\n");
+
         // Skip first 2 status bytes
         uint8_t *data = &buf[2];
 
@@ -122,8 +127,8 @@ public:
     std::map<std::string, float> getData() override { return all_data_; }
 
 private:
-    // ---- Register map (verified vs Adafruit lib + TI datasheet) ----
-    static constexpr uint8_t REG_RESULTS        = 0x05;  // start of results block
+    // ---- Register map ----
+    static constexpr uint8_t REG_RESULTS        = 0x05;
     static constexpr uint8_t REG_CONFIGURATION  = 0x0A;
     static constexpr uint8_t REG_STATUS         = 0x0C;
     static constexpr uint8_t REG_DEVICE_ID      = 0x11;
@@ -148,3 +153,4 @@ private:
         return (buf[0] << 8) | buf[1];
     }
 };
+
