@@ -1,52 +1,42 @@
 #pragma once
 #include "i2cSensor.h"
-#include <cmath>
-#include <cstdint>
 #include <map>
 #include <string>
+#include <cmath>
 #include <stdio.h>
-
-/*
- * OPT4048 Pico driver (Adafruit-like flow)
- * - Uses your I2CSensor base (writeBytes / readBytes, with repeated-start support)
- * - Channel names: X, Y, Z, W (W = wideband/clear)
- * - Default I2C addr: 0x44 (ADDR high -> 0x45)
- */
 
 class OPT4048 : public I2CSensor {
 public:
-    // Tunables you can pass in
     OPT4048(i2c_inst_t* bus, uint8_t addr = 0x44,
-            uint16_t read_delay_ms = 100, uint16_t sample_rate_ms = 1000)
+            uint16_t read_delay_ms = 100,
+            uint16_t sample_rate_ms = 1000)
         : I2CSensor(bus, addr, read_delay_ms, sample_rate_ms) {}
 
-    // ----- Public API -----
     void init() override {
         last_read_request_ = time_us_64();
 
-        // 1) Software reset, then clear it
-        writeRegister16(REG_CONTROL, CONTROL_SW_RESET);
-        sleep_ms(10);
-        writeRegister16(REG_CONTROL, 0x0000);
-        sleep_ms(5);
-
-        // 2) Read Device ID for sanity
+        // --- Read device ID (should be 0x0821) ---
         uint16_t id = readRegister16(REG_DEVICE_ID);
-        printf("OPT4048 Device ID: 0x%04X\n", id);   // Adafruit lib expects 0x0821
+        printf("OPT4048 Device ID: 0x%04X\n", id);
         if (id != 0x0821) {
-            printf("⚠️  Unexpected Device ID (wanted 0x0821). Check power/address.\n");
+            printf("⚠️  Unexpected Device ID (want 0x0821)\n");
         }
 
-        // 3) Configure continuous mode, mid gain, ~50ms conv time, light averaging
-        uint16_t cfg = 0;
-        cfg |= CFG_MODE_CONT;     // continuous conversions
-        cfg |= (3u << CFG_RANGE_SHIFT);   // range = 3 (mid)
-        cfg |= (7u << CFG_CONVT_SHIFT);   // conv time index ~50ms (see note)
-        cfg |= (1u << CFG_AVG_SHIFT);     // small averaging (2x)
-        writeRegister16(REG_CONFIGURATION, cfg);
-        sleep_ms(100); // let first integration complete
+        // --- Configure continuous conversion ---
+        uint16_t config = 0x0000;
+        config |= (3u << 0);    // MODE = 3 (continuous)
+        config |= (3u << 12);   // RANGE = 3 (mid)
+        config |= (7u << 8);    // CONVERSION TIME = ~50ms
+        writeRegister16(REG_CONFIGURATION, config);
+        sleep_ms(100);
 
-        // Optional: read back config for debug
+        // --- Threshold / interrupt config ---
+        uint16_t thcfg = 0;
+        thcfg |= (1u << 4) | (1u << 5) | (1u << 6); // active high, latch, etc.
+        thcfg |= (3u << 2); // data ready all
+        writeRegister16(REG_THRESHOLD_CFG, thcfg);
+
+        // --- Optional config readback ---
         uint16_t cfg_rb = readRegister16(REG_CONFIGURATION);
         printf("OPT4048 Config readback: 0x%04X\n", cfg_rb);
     }
@@ -59,7 +49,8 @@ public:
 
     bool query_read_cmd() override {
         const uint64_t now = time_us_64();
-        if (now - last_read_request_ < (uint64_t)sample_rate_ms_ * 1000ULL) return false;
+        if (now - last_read_request_ < (uint64_t)sample_rate_ms_ * 1000ULL)
+            return false;
         read_ready_ = true;
         last_read_request_ = now;
         last_time_since_ready_ = now;
@@ -68,105 +59,84 @@ public:
 
     bool load_read_resp() override {
         if (!read_ready_) return false;
-        if ((time_us_64() - last_time_since_ready_) <= (uint64_t)read_delay_ms_ * 1000ULL) return false;
+        if ((time_us_64() - last_time_since_ready_) <= (uint64_t)read_delay_ms_ * 1000ULL)
+            return false;
         read_ready_ = false;
 
-        // (Optional) You can poll a data-ready bit here if you like.
-        // Many apps just read; the result registers hold the latest conversion.
+        // --- Read 16 bytes from channel base (0x00) ---
+        uint8_t cmd = REG_RESULT_BASE;
+        uint8_t buf[16];
+        writeBytes(&cmd, 1, true);
+        if (readBytes(buf, 16) != 16) {
+            printf("❌ Failed to read OPT4048 data\n");
+            return false;
+        }
 
-        // Read 24-bit results MSB..LSB
-        const uint32_t X = readRegister24(REG_RESULT_X);
-        const uint32_t Y = readRegister24(REG_RESULT_Y);
-        const uint32_t Z = readRegister24(REG_RESULT_Z);
-        const uint32_t W = readRegister24(REG_RESULT_W);
+        // --- Expand 4 channels (20-bit mantissa + exponent) ---
+        uint32_t raw[4] = {0};
+        for (int ch = 0; ch < 4; ++ch) {
+            uint8_t exp  = buf[4 * ch] >> 4;
+            uint16_t msb = ((buf[4 * ch] & 0x0F) << 8) | buf[4 * ch + 1];
+            uint16_t lsb = buf[4 * ch + 2];
+            uint32_t mant = ((uint32_t)msb << 8) | lsb;
+            raw[ch] = mant << exp;
+        }
 
-        // Derived quantities
-        const double sum = static_cast<double>(X) + static_cast<double>(Y) + static_cast<double>(Z);
-        const double cie_x = (sum > 0.0) ? static_cast<double>(X) / sum : 0.0;
-        const double cie_y = (sum > 0.0) ? static_cast<double>(Y) / sum : 0.0;
+        float X = raw[0];
+        float Y = raw[1];
+        float Z = raw[2];
+        float W = raw[3];
 
-        // Lux: Adafruit treats Y as illuminance proxy; scale is empirical & depends on range/time.
-        // Start with a small scale and calibrate later against a lux reference.
-        const double lux = static_cast<double>(Y) * 0.003; // tweak per your setup
+        // --- Derived values ---
+        float sum = X + Y + Z;
+        float cie_x = (sum > 0) ? (X / sum) : 0;
+        float cie_y = (sum > 0) ? (Y / sum) : 0;
+        float lux   = Y * 0.003f; // rough scaling
+        float n = (cie_x - 0.3320f) / (0.1858f - cie_y);
+        float cct = (449.0f * powf(n, 3)) + (3525.0f * powf(n, 2)) +
+                    (6823.3f * n) + 5520.33f;
 
-        // McCamy CCT (quick, good-enough)
-        const double n = (cie_x - 0.3320) / (0.1858 - cie_y);
-        const double cct = (449.0 * n * n * n) + (3525.0 * n * n) + (6823.3 * n) + 5520.33;
-
-        all_data_["X_raw"] = static_cast<float>(X);
-        all_data_["Y_raw"] = static_cast<float>(Y);
-        all_data_["Z_raw"] = static_cast<float>(Z);
-        all_data_["W_raw"] = static_cast<float>(W);
-        all_data_["cie_x"] = static_cast<float>(cie_x);
-        all_data_["cie_y"] = static_cast<float>(cie_y);
-        all_data_["lux"]   = static_cast<float>(lux);
-        all_data_["cct_K"] = static_cast<float>(cct);
+        // --- Store results ---
+        all_data_["X_raw"] = X;
+        all_data_["Y_raw"] = Y;
+        all_data_["Z_raw"] = Z;
+        all_data_["W_raw"] = W;
+        all_data_["cie_x"] = cie_x;
+        all_data_["cie_y"] = cie_y;
+        all_data_["lux"]   = lux;
+        all_data_["cct_K"] = cct;
 
         return true;
     }
 
     std::map<std::string, float> getData() override { return all_data_; }
 
-    // --- Optional helpers you can call later from your app ---
-    void setRange(uint8_t range_sel) {         // 0..7 typically
-        uint16_t cfg = readRegister16(REG_CONFIGURATION);
-        cfg &= ~(0x7u << CFG_RANGE_SHIFT);
-        cfg |= (static_cast<uint16_t>(range_sel & 0x7u) << CFG_RANGE_SHIFT);
-        writeRegister16(REG_CONFIGURATION, cfg);
-    }
-    void setConvTimeIdx(uint8_t idx) {         // conv time index, see datasheet (0..11 possible on OPT4048)
-        uint16_t cfg = readRegister16(REG_CONFIGURATION);
-        cfg &= ~(0x7u << CFG_CONVT_SHIFT);     // keep 3-bit field here; long times may be handled by an extended bit elsewhere per datasheet
-        cfg |= (static_cast<uint16_t>(idx & 0x7u) << CFG_CONVT_SHIFT);
-        writeRegister16(REG_CONFIGURATION, cfg);
-    }
-    void setAveraging(uint8_t avg_idx) {       // 0..3 typical
-        uint16_t cfg = readRegister16(REG_CONFIGURATION);
-        cfg &= ~(0x3u << CFG_AVG_SHIFT);
-        cfg |= (static_cast<uint16_t>(avg_idx & 0x3u) << CFG_AVG_SHIFT);
-        writeRegister16(REG_CONFIGURATION, cfg);
-    }
-
 private:
-    // ---- Registers (matching Adafruit names/addresses) ----
-    static constexpr uint8_t REG_CONFIGURATION = 0x00;
-    static constexpr uint8_t REG_CONTROL       = 0x01;
-    static constexpr uint8_t REG_STATUS        = 0x02;
-    static constexpr uint8_t REG_RESULT_X      = 0x0D;
-    static constexpr uint8_t REG_RESULT_Y      = 0x0E;
-    static constexpr uint8_t REG_RESULT_Z      = 0x0F;
-    static constexpr uint8_t REG_RESULT_W      = 0x10; // wideband/clear (Adafruit calls it W)
-    static constexpr uint8_t REG_DEVICE_ID     = 0x92;
-
-    // ---- Bit fields (kept aligned with Adafruit’s usage) ----
-    static constexpr uint16_t CONTROL_SW_RESET = 0x8000;     // write then clear
-
-    static constexpr uint16_t CFG_MODE_CONT    = 1u << 15;   // continuous conversions
-    static constexpr uint8_t  CFG_RANGE_SHIFT  = 12;         // 3 bits
-    static constexpr uint8_t  CFG_CONVT_SHIFT  = 9;          // 3 bits (short list); datasheet has extended times too
-    static constexpr uint8_t  CFG_AVG_SHIFT    = 6;          // 2 bits
+    // ---- Register map (per Adafruit lib / TI datasheet) ----
+    static constexpr uint8_t REG_RESULT_BASE   = 0x00;  // channel data
+    static constexpr uint8_t REG_CONFIGURATION = 0x0A;
+    static constexpr uint8_t REG_THRESHOLD_CFG = 0x0B;
+    static constexpr uint8_t REG_STATUS        = 0x0C;
+    static constexpr uint8_t REG_DEVICE_ID     = 0x11;  // ✅ correct Device ID reg
 
     std::map<std::string, float> all_data_;
 
-    // ---- I2C helpers ----
+    // ---- I²C helpers ----
     void writeRegister16(uint8_t reg, uint16_t value) {
-        uint8_t data[3] = { reg, static_cast<uint8_t>(value >> 8), static_cast<uint8_t>(value & 0xFF) };
+        uint8_t data[3] = {
+            reg,
+            static_cast<uint8_t>(value >> 8),
+            static_cast<uint8_t>(value & 0xFF)
+        };
         writeBytes(data, 3);
     }
+
     uint16_t readRegister16(uint8_t reg) {
         uint8_t cmd = reg;
-        uint8_t buf[2] = {0, 0};
-        writeBytes(&cmd, 1, /*repeat start*/ true);
+        uint8_t buf[2] = {0};
+        writeBytes(&cmd, 1, true);
         if (readBytes(buf, 2) != 2) return 0;
-        return static_cast<uint16_t>(buf[0] << 8) | buf[1];
-    }
-    uint32_t readRegister24(uint8_t reg) {
-        uint8_t cmd = reg;
-        uint8_t buf[3] = {0, 0, 0};
-        writeBytes(&cmd, 1, /*repeat start*/ true);
-        if (readBytes(buf, 3) != 3) return 0;
-        return (static_cast<uint32_t>(buf[0]) << 16) |
-               (static_cast<uint32_t>(buf[1]) << 8)  |
-               (static_cast<uint32_t>(buf[2]));
+        return (buf[0] << 8) | buf[1];
     }
 };
+
