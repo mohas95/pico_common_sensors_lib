@@ -36,6 +36,11 @@ public:
         thcfg |= (3u << 2); // data ready all
         writeRegister16(REG_THRESHOLD_CFG, thcfg);
 
+        // --- Start conversions explicitly (MODE = 3) ---
+        uint16_t start = readRegister16(REG_CONFIGURATION);
+        start |= 0x0003;
+        writeRegister16(REG_CONFIGURATION, start);
+
         // --- Optional config readback ---
         uint16_t cfg_rb = readRegister16(REG_CONFIGURATION);
         printf("OPT4048 Config readback: 0x%04X\n", cfg_rb);
@@ -72,14 +77,22 @@ public:
             return false;
         }
 
-        // --- Expand 4 channels (20-bit mantissa + exponent) ---
+        // --- Expand 4 channels (20-bit mantissa + 4-bit exponent, mask CRC nibble) ---
         uint32_t raw[4] = {0};
         for (int ch = 0; ch < 4; ++ch) {
-            uint8_t exp  = buf[4 * ch] >> 4;
-            uint16_t msb = ((buf[4 * ch] & 0x0F) << 8) | buf[4 * ch + 1];
-            uint16_t lsb = buf[4 * ch + 2];
-            uint32_t mant = ((uint32_t)msb << 8) | lsb;
-            raw[ch] = mant << exp;
+            uint8_t e_msb = buf[4 * ch];       // exponent (upper nibble) + mantissa high nibble
+            uint8_t m_mid = buf[4 * ch + 1];   // mantissa middle
+            uint8_t m_low = buf[4 * ch + 2];   // mantissa low
+            uint8_t counter_crc = buf[4 * ch + 3]; // lower nibble = CRC
+
+            uint8_t exponent = e_msb >> 4;
+            uint32_t mantissa =
+                ((uint32_t)(e_msb & 0x0F) << 16) |
+                ((uint32_t)m_mid << 8) |
+                (uint32_t)m_low;
+
+            mantissa &= 0xFFFFF; // 20-bit limit
+            raw[ch] = mantissa << exponent;
         }
 
         float X = raw[0];
@@ -113,7 +126,7 @@ public:
 
 private:
     // ---- Register map (per Adafruit lib / TI datasheet) ----
-    static constexpr uint8_t REG_RESULT_BASE   = 0x00;  // channel data
+    static constexpr uint8_t REG_RESULT_BASE   = 0x00;  // channel data start
     static constexpr uint8_t REG_CONFIGURATION = 0x0A;
     static constexpr uint8_t REG_THRESHOLD_CFG = 0x0B;
     static constexpr uint8_t REG_STATUS        = 0x0C;
@@ -139,4 +152,3 @@ private:
         return (buf[0] << 8) | buf[1];
     }
 };
-
