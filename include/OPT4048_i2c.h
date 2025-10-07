@@ -22,8 +22,8 @@ public:
             printf("⚠️  Unexpected Device ID (want 0x0821)\n");
         }
 
-        // --- Configure continuous conversion mode ---
-        uint16_t config = 0x0000;
+        // --- Configure continuous conversion ---
+        uint16_t config = 0;
         config |= (3u << 0);    // MODE = 3 (continuous)
         config |= (3u << 12);   // RANGE = 3 (mid)
         config |= (7u << 8);    // CONVERSION TIME = ~50ms
@@ -62,27 +62,27 @@ public:
             return false;
         read_ready_ = false;
 
-        // --- Read 16 bytes starting at 0x07 (W, X, Y, Z channels) ---
+        // --- Read 12 bytes starting at 0x07 (W,X,Y channels only) ---
         uint8_t cmd = REG_RESULTS;
-        uint8_t buf[16];
+        uint8_t buf[12];
         writeBytes(&cmd, 1, true);
-        if (readBytes(buf, 16) != 16) {
+        if (readBytes(buf, 12) != 12) {
             printf("❌ Failed to read OPT4048 data\n");
             return false;
         }
 
         // 🔍 Print raw data for debugging
         printf("Raw frame: ");
-        for (int i = 0; i < 16; ++i) printf("%02X ", buf[i]);
+        for (int i = 0; i < 12; ++i) printf("%02X ", buf[i]);
         printf("\n");
 
-        // --- Decode 4 channels (W, X, Y, Z) ---
-        uint32_t raw[4] = {0};
-        for (int ch = 0; ch < 4; ++ch) {
+        // --- Decode channels (W, X, Y) ---
+        uint32_t raw[3] = {0};
+        for (int ch = 0; ch < 3; ++ch) {
             uint8_t e_msb = buf[4 * ch];
             uint8_t m_mid = buf[4 * ch + 1];
             uint8_t m_low = buf[4 * ch + 2];
-            uint8_t crc   = buf[4 * ch + 3]; // ignore CRC nibble
+            uint8_t crc   = buf[4 * ch + 3]; // ignore CRC
 
             uint8_t exponent = e_msb >> 4;
             uint32_t mantissa =
@@ -97,10 +97,9 @@ public:
         float W = raw[0];
         float X = raw[1];
         float Y = raw[2];
-        float Z = raw[3];
 
         // --- Derived values ---
-        float sum = X + Y + Z;
+        float sum = X + Y;
         float cie_x = (sum > 0) ? (X / sum) : 0;
         float cie_y = (sum > 0) ? (Y / sum) : 0;
         float lux   = Y * 0.003f; // rough scaling
@@ -112,7 +111,6 @@ public:
         all_data_["W_raw"] = W;
         all_data_["X_raw"] = X;
         all_data_["Y_raw"] = Y;
-        all_data_["Z_raw"] = Z;
         all_data_["cie_x"] = cie_x;
         all_data_["cie_y"] = cie_y;
         all_data_["lux"]   = lux;
@@ -125,7 +123,7 @@ public:
 
 private:
     // ---- Register map ----
-    static constexpr uint8_t REG_RESULTS        = 0x07;  // ✅ Correct base for WXYZ data
+    static constexpr uint8_t REG_RESULTS        = 0x07;  // ✅ valid WXY start
     static constexpr uint8_t REG_CONFIGURATION  = 0x0A;
     static constexpr uint8_t REG_STATUS         = 0x0C;
     static constexpr uint8_t REG_DEVICE_ID      = 0x11;
