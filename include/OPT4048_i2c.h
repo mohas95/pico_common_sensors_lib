@@ -15,14 +15,14 @@ public:
     void init() override {
         last_read_request_ = time_us_64();
 
-        // --- Read device ID (should be 0x0821) ---
+        // --- Read Device ID ---
         uint16_t id = readRegister16(REG_DEVICE_ID);
         printf("OPT4048 Device ID: 0x%04X\n", id);
         if (id != 0x0821) {
             printf("⚠️  Unexpected Device ID (want 0x0821)\n");
         }
 
-        // --- Configure continuous conversion ---
+        // --- Configure continuous conversion mode ---
         uint16_t config = 0x0000;
         config |= (3u << 0);    // MODE = 3 (continuous)
         config |= (3u << 12);   // RANGE = 3 (mid)
@@ -35,7 +35,7 @@ public:
         start |= 0x0003;
         writeRegister16(REG_CONFIGURATION, start);
 
-        // --- Optional config readback ---
+        // --- Optional readback ---
         uint16_t cfg_rb = readRegister16(REG_CONFIGURATION);
         printf("OPT4048 Config readback: 0x%04X\n", cfg_rb);
     }
@@ -62,22 +62,25 @@ public:
             return false;
         read_ready_ = false;
 
-        // --- Read 16 bytes from correct result register (0x05) ---
+        // --- Read 18 bytes (2 status + 4x4 channel data) ---
         uint8_t cmd = REG_RESULTS;
-        uint8_t buf[16];
+        uint8_t buf[18];
         writeBytes(&cmd, 1, true);
-        if (readBytes(buf, 16) != 16) {
+        if (readBytes(buf, 18) != 18) {
             printf("❌ Failed to read OPT4048 data\n");
             return false;
         }
 
-        // --- Decode 4 channels (20-bit mantissa + 4-bit exponent) ---
+        // Skip first 2 status bytes
+        uint8_t *data = &buf[2];
+
+        // --- Decode 4 channels (W, X, Y, Z) ---
         uint32_t raw[4] = {0};
         for (int ch = 0; ch < 4; ++ch) {
-            uint8_t e_msb = buf[4 * ch];       // exponent nibble + mantissa MSB
-            uint8_t m_mid = buf[4 * ch + 1];   // mantissa middle
-            uint8_t m_low = buf[4 * ch + 2];   // mantissa LSB
-            uint8_t crc   = buf[4 * ch + 3];   // lower nibble = CRC
+            uint8_t e_msb = data[4 * ch];       // exponent nibble + mantissa high nibble
+            uint8_t m_mid = data[4 * ch + 1];
+            uint8_t m_low = data[4 * ch + 2];
+            uint8_t crc   = data[4 * ch + 3];   // low nibble = CRC (ignore)
 
             uint8_t exponent = e_msb >> 4;
             uint32_t mantissa =
@@ -89,10 +92,10 @@ public:
             raw[ch] = mantissa << exponent;
         }
 
-        float X = raw[0];
-        float Y = raw[1];
-        float Z = raw[2];
-        float W = raw[3];
+        float W = raw[0];
+        float X = raw[1];
+        float Y = raw[2];
+        float Z = raw[3];
 
         // --- Derived values ---
         float sum = X + Y + Z;
@@ -104,10 +107,10 @@ public:
                     (6823.3f * n) + 5520.33f;
 
         // --- Store results ---
+        all_data_["W_raw"] = W;
         all_data_["X_raw"] = X;
         all_data_["Y_raw"] = Y;
         all_data_["Z_raw"] = Z;
-        all_data_["W_raw"] = W;
         all_data_["cie_x"] = cie_x;
         all_data_["cie_y"] = cie_y;
         all_data_["lux"]   = lux;
@@ -119,11 +122,11 @@ public:
     std::map<std::string, float> getData() override { return all_data_; }
 
 private:
-    // ---- Register map (per Adafruit lib / TI datasheet) ----
-    static constexpr uint8_t REG_RESULTS        = 0x05;  // ✅ correct results base
+    // ---- Register map (verified vs Adafruit lib + TI datasheet) ----
+    static constexpr uint8_t REG_RESULTS        = 0x05;  // start of results block
     static constexpr uint8_t REG_CONFIGURATION  = 0x0A;
     static constexpr uint8_t REG_STATUS         = 0x0C;
-    static constexpr uint8_t REG_DEVICE_ID      = 0x11;  // correct Device ID reg
+    static constexpr uint8_t REG_DEVICE_ID      = 0x11;
 
     std::map<std::string, float> all_data_;
 
