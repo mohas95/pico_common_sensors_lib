@@ -12,12 +12,15 @@ class OPT4048 : public I2CSensor {
 
         void init() override {
             last_read_request_ = time_us_64();
+            uint16_t id = readRegister16(REG_DEVICE_ID);
+            printf("OPT4048 Device ID: 0x%04X\n", id);
 
             // Soft reset or configuration if needed
             // Write continuous conversion mode
-            uint16_t config = 0x8000; // Continuous mode, defaults for range/time
+            // uint16_t config = 0x8000; // Continuous mode, defaults for range/time
+            uint16_t config = 0xB100; // Continuous mode, defaults for range/time
             writeRegister16(REG_CONFIG, config);
-            sleep_ms(50);
+            sleep_ms(150);
         }
 
         bool read() override {
