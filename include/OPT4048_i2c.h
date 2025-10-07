@@ -15,27 +15,25 @@ public:
     void init() override {
         last_read_request_ = time_us_64();
 
-        // --- Read Device ID ---
+        // --- Device ID check ---
         uint16_t id = readRegister16(REG_DEVICE_ID);
         printf("OPT4048 Device ID: 0x%04X\n", id);
-        if (id != 0x0821) {
-            printf("⚠️  Unexpected Device ID (want 0x0821)\n");
-        }
+        if (id != 0x0821) printf("⚠️ Unexpected Device ID\n");
 
-        // --- Configure continuous conversion ---
+        // --- Software reset (per datasheet: write 0xC000) ---
+        writeRegister16(REG_CONFIGURATION, 0xC000);
+        sleep_ms(10);
+
+        // --- Set continuous conversion, medium range ---
         uint16_t config = 0;
         config |= (3u << 0);    // MODE = 3 (continuous)
-        config |= (3u << 12);   // RANGE = 3 (mid)
-        config |= (7u << 8);    // CONVERSION TIME = ~50ms
+        config |= (3u << 12);   // RANGE = 3
+        config |= (7u << 8);    // Conversion time bits
+        config |= (1u << 2);    // START bit
         writeRegister16(REG_CONFIGURATION, config);
-        sleep_ms(100);
+        sleep_ms(50);
 
-        // --- Start conversions explicitly (MODE = 3) ---
-        uint16_t start = readRegister16(REG_CONFIGURATION);
-        start |= 0x0003;
-        writeRegister16(REG_CONFIGURATION, start);
-
-        // --- Optional readback ---
+        // --- Verify config ---
         uint16_t cfg_rb = readRegister16(REG_CONFIGURATION);
         printf("OPT4048 Config readback: 0x%04X\n", cfg_rb);
     }
@@ -62,35 +60,32 @@ public:
             return false;
         read_ready_ = false;
 
-        // --- Read 12 bytes starting at 0x07 (W,X,Y channels only) ---
+        // --- Read 12 bytes (W,X,Y) ---
         uint8_t cmd = REG_RESULTS;
         uint8_t buf[12];
         writeBytes(&cmd, 1, true);
         if (readBytes(buf, 12) != 12) {
-            printf("❌ Failed to read OPT4048 data\n");
+            printf("❌ I2C read failed\n");
             return false;
         }
 
-        // 🔍 Print raw data for debugging
         printf("Raw frame: ");
         for (int i = 0; i < 12; ++i) printf("%02X ", buf[i]);
         printf("\n");
 
-        // --- Decode channels (W, X, Y) ---
+        // --- Decode ---
         uint32_t raw[3] = {0};
         for (int ch = 0; ch < 3; ++ch) {
             uint8_t e_msb = buf[4 * ch];
             uint8_t m_mid = buf[4 * ch + 1];
             uint8_t m_low = buf[4 * ch + 2];
-            uint8_t crc   = buf[4 * ch + 3]; // ignore CRC
 
             uint8_t exponent = e_msb >> 4;
             uint32_t mantissa =
                 ((uint32_t)(e_msb & 0x0F) << 16) |
                 ((uint32_t)m_mid << 8) |
                 (uint32_t)m_low;
-
-            mantissa &= 0xFFFFF; // 20-bit mantissa
+            mantissa &= 0xFFFFF;
             raw[ch] = mantissa << exponent;
         }
 
@@ -98,16 +93,14 @@ public:
         float X = raw[1];
         float Y = raw[2];
 
-        // --- Derived values ---
         float sum = X + Y;
         float cie_x = (sum > 0) ? (X / sum) : 0;
         float cie_y = (sum > 0) ? (Y / sum) : 0;
-        float lux   = Y * 0.003f; // rough scaling
+        float lux   = Y * 0.003f;
         float n = (cie_x - 0.3320f) / (0.1858f - cie_y);
         float cct = (449.0f * powf(n, 3)) + (3525.0f * powf(n, 2)) +
                     (6823.3f * n) + 5520.33f;
 
-        // --- Store results ---
         all_data_["W_raw"] = W;
         all_data_["X_raw"] = X;
         all_data_["Y_raw"] = Y;
@@ -122,15 +115,13 @@ public:
     std::map<std::string, float> getData() override { return all_data_; }
 
 private:
-    // ---- Register map ----
-    static constexpr uint8_t REG_RESULTS        = 0x07;  // ✅ valid WXY start
+    static constexpr uint8_t REG_RESULTS        = 0x07;
     static constexpr uint8_t REG_CONFIGURATION  = 0x0A;
     static constexpr uint8_t REG_STATUS         = 0x0C;
     static constexpr uint8_t REG_DEVICE_ID      = 0x11;
 
     std::map<std::string, float> all_data_;
 
-    // ---- I²C helpers ----
     void writeRegister16(uint8_t reg, uint16_t value) {
         uint8_t data[3] = {
             reg,
@@ -148,3 +139,4 @@ private:
         return (buf[0] << 8) | buf[1];
     }
 };
+
