@@ -30,12 +30,6 @@ public:
         writeRegister16(REG_CONFIGURATION, config);
         sleep_ms(100);
 
-        // --- Threshold / interrupt config ---
-        uint16_t thcfg = 0;
-        thcfg |= (1u << 4) | (1u << 5) | (1u << 6); // active high, latch, etc.
-        thcfg |= (3u << 2); // data ready all
-        writeRegister16(REG_THRESHOLD_CFG, thcfg);
-
         // --- Start conversions explicitly (MODE = 3) ---
         uint16_t start = readRegister16(REG_CONFIGURATION);
         start |= 0x0003;
@@ -68,8 +62,8 @@ public:
             return false;
         read_ready_ = false;
 
-        // --- Read 16 bytes from channel base (0x00) ---
-        uint8_t cmd = REG_RESULT_BASE;
+        // --- Read 16 bytes from correct result register (0x05) ---
+        uint8_t cmd = REG_RESULTS;
         uint8_t buf[16];
         writeBytes(&cmd, 1, true);
         if (readBytes(buf, 16) != 16) {
@@ -77,13 +71,13 @@ public:
             return false;
         }
 
-        // --- Expand 4 channels (20-bit mantissa + 4-bit exponent, mask CRC nibble) ---
+        // --- Decode 4 channels (20-bit mantissa + 4-bit exponent) ---
         uint32_t raw[4] = {0};
         for (int ch = 0; ch < 4; ++ch) {
-            uint8_t e_msb = buf[4 * ch];       // exponent (upper nibble) + mantissa high nibble
+            uint8_t e_msb = buf[4 * ch];       // exponent nibble + mantissa MSB
             uint8_t m_mid = buf[4 * ch + 1];   // mantissa middle
-            uint8_t m_low = buf[4 * ch + 2];   // mantissa low
-            uint8_t counter_crc = buf[4 * ch + 3]; // lower nibble = CRC
+            uint8_t m_low = buf[4 * ch + 2];   // mantissa LSB
+            uint8_t crc   = buf[4 * ch + 3];   // lower nibble = CRC
 
             uint8_t exponent = e_msb >> 4;
             uint32_t mantissa =
@@ -91,7 +85,7 @@ public:
                 ((uint32_t)m_mid << 8) |
                 (uint32_t)m_low;
 
-            mantissa &= 0xFFFFF; // 20-bit limit
+            mantissa &= 0xFFFFF; // 20-bit mantissa
             raw[ch] = mantissa << exponent;
         }
 
@@ -126,11 +120,10 @@ public:
 
 private:
     // ---- Register map (per Adafruit lib / TI datasheet) ----
-    static constexpr uint8_t REG_RESULT_BASE   = 0x00;  // channel data start
-    static constexpr uint8_t REG_CONFIGURATION = 0x0A;
-    static constexpr uint8_t REG_THRESHOLD_CFG = 0x0B;
-    static constexpr uint8_t REG_STATUS        = 0x0C;
-    static constexpr uint8_t REG_DEVICE_ID     = 0x11;  // ✅ correct Device ID reg
+    static constexpr uint8_t REG_RESULTS        = 0x05;  // ✅ correct results base
+    static constexpr uint8_t REG_CONFIGURATION  = 0x0A;
+    static constexpr uint8_t REG_STATUS         = 0x0C;
+    static constexpr uint8_t REG_DEVICE_ID      = 0x11;  // correct Device ID reg
 
     std::map<std::string, float> all_data_;
 
