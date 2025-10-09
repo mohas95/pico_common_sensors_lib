@@ -1,23 +1,28 @@
 #include "pico/stdlib.h"
 #include "hardware/i2c.h"
+#include "hardware/adc.h"
+
 #include <stdio.h>
 #include <string.h>
 #include <sstream>
+
 #include "SHT35_i2c.h"
 #include "k30_i2c.h"
 #include "o2ezo_i2c.h"
-#include "OPT4048_i2c.h"
 #include "bangbangController.h"
+#include "AnalogSensor.h"
 
 const uint8_t VALVE_PIN = 2;
 const uint8_t I2C1_SDA_PIN = 6;
 const uint8_t I2C1_SCL_PIN = 7;
 const uint8_t I2C0_SDA_PIN = 0;
 const uint8_t I2C0_SCL_PIN = 1;
+const uint8_t ADC0_PAR_PIN = 26;
 
 #define K30_ADDR 0x68
 #define EZO_O2_ADDR 0x6C
 #define SHT35_ADDR 0x44
+const uint8_t adc_par_channel = 0;
 
 void valve_on(){
     gpio_put(VALVE_PIN,1);
@@ -63,9 +68,18 @@ std::string make_json_payload(const std::map<std::string,float>& data){
     return ss.str();
 }
 
+auto parMapping = [](float voltage) -> std::map<std::string,float> {
+    
+    float par = voltage * 1000.0f ;
+    
+    return {{"par", par}};
+};
+
+
 
 int main(){
     stdio_init_all();
+    adc_init();
 
     i2c_init(i2c1,100*1000);
     i2c_init(i2c0,100*1000);
@@ -79,12 +93,13 @@ int main(){
     gpio_set_dir(VALVE_PIN, GPIO_OUT);
     valve_off();
 
-    
+    AnalogSensor par_sensor(adc_par_channel, ADC0_PAR_PIN, parMapping);
     SHT35 sht(i2c0, 0x44);
     K30 k30(i2c1, 0x68);
     O2EZO o2ezo(i2c1, 0x6C);
     bangbangController CO2control(0.0, 100.0, 0.0, 10000.0);
 
+    par_sensor.init();
     sht.init();
     k30.init();
     o2ezo.init();
@@ -99,6 +114,13 @@ int main(){
     while(true){
 
         CO2control.pollSerial();
+
+        if(par_sensor.read()){
+            auto par_data = par_sensor.getData();
+            for (const auto &[key, value] : par_data) {
+                allData[key] = value;
+            }
+        }
 
         if(sht.read()){
             auto sht_data = sht.getData();
