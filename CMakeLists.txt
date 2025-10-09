@@ -36,6 +36,7 @@ target_include_directories(pico_common_sensors_lib PUBLIC
 target_link_libraries(pico_common_sensors_lib
         pico_stdlib
         hardware_i2c
+        hardware_adc
         )
 
 # ====================================================================================

@@ -1,13 +1,19 @@
 #pragma once
 
 #include <functional>
+#include <cstdio>
+#include <map>
+#include <tuple>
+#include <string>
+
 #include "pico/stdlib.h"
 #include "hardware/adc.h"
-#include <cstdio>
+
+
 
 class AnalogSensor {
     public:
-        AnalogSensor(uint8_t adc_channel, uint8_t pin, std::function<float(float)> mapFn, float vref =0, uint32_t sample_rate_ms =500 ) : 
+        AnalogSensor(uint8_t adc_channel, uint8_t pin, std::function<std::map<std::string, float>(float)> mapFn, float vref =3.3f, uint32_t sample_rate_ms =500 ) : 
                                                                             adc_channel_(adc_channel),
                                                                             pin_(pin),
                                                                             VREF_(vref),
@@ -21,23 +27,23 @@ class AnalogSensor {
 
         bool read(){
             uint64_t now = time_us_64();
-            if (now - last_time_since_read_ < sample_rate_ms_ *1000){
+            if (now - last_time_since_read_ < sample_rate_ms_ *1000ULL){
                 return false;
             }else{
                 adc_select_input(adc_channel_);
                 raw_ = adc_read();
-                voltage_ = (raw * VREF) / (1 << 12);
+                voltage_ = (raw_ * VREF_) / (1 << 12);
 
+                all_data_ =  mapping_func_(voltage_);
+
+                last_time_since_read_ = now;
 
                 return true;
             }
 
         }
 
-        bool getData(){
-
-        }
-
+        const std::map<std::string, float>& getData(){return all_data_;}
 
 
         
@@ -45,7 +51,8 @@ class AnalogSensor {
         const float VREF_;
         const uint8_t pin_;
         const uint8_t adc_channel_;
-        std::function<float(float)> mapping_func_;
+        std::function<std::map<std::string, float>(float)> mapping_func_;
+        std::map<std::string, float> all_data_;
 
         uint16_t raw_;
         float voltage_;
