@@ -1,6 +1,7 @@
 #pragma once
 #include "i2cSensor.h"
 #include <stdio.h>
+#include <cmath>
 
 
 class K30 : public I2CSensor {
@@ -44,6 +45,8 @@ class K30 : public I2CSensor {
                     all_data_["co2_ppm"] = co2_;     
                 } else{
                     printf("Failed to read K30 sensor, res=%d\n",res);
+                    co2_=NAN;
+                    all_data_["co2_ppm"]= NAN;
                     return false;
                 }  
             }else{
