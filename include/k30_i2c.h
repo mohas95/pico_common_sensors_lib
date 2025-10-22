@@ -47,7 +47,7 @@ class K30 : public I2CSensor {
                     printf("Failed to read K30 sensor, res=%d\n",res);
                     co2_=NAN;
                     all_data_["co2_ppm"]= NAN;
-                    return false;
+                    // return false;
                 }  
             }else{
                 return false;
