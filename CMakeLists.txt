@@ -12,6 +12,9 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(PICO_SDK_FETCH_FROM_GIT ON)
 set(PICOTOOL_FETCH_FROM_GIT_PATH "${CMAKE_SOURCE_DIR}/.pico-deps" CACHE PATH "Shared picotool path")
 
+#set device
+set(PICO_BOARD pico2_w)
+
 # Import Pico SDK
 include(pico_sdk_import.cmake)
 
@@ -44,7 +47,7 @@ target_link_libraries(pico_common_sensors_lib
 # ====================================================================================
 if (CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
     add_executable(pico_common_sensors_lib_standalone
-        src/main.cpp
+        src/onewire.cpp
     )
 
     target_link_libraries(pico_common_sensors_lib_standalone pico_common_sensors_lib)
