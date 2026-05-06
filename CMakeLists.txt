@@ -50,7 +50,8 @@ target_link_libraries(pico_common_sensors_lib
 if (CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
     add_executable(pico_common_sensors_lib_standalone
         # src/onewire.cpp
-        src/DFROBOT_PH_TEST.cpp
+        # src/DFROBOT_PH_TEST.cpp
+        src/DFROBOT_EC_TEST.cpp
     )
 
     target_link_libraries(pico_common_sensors_lib_standalone pico_common_sensors_lib)

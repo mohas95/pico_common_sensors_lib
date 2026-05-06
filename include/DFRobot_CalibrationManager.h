@@ -6,7 +6,8 @@
 #include <cmath>
 
 #include "pico/stdlib.h"
-#include "DFRobot_PH_Analog.h"
+// #include "DFRobot_PH_Analog.h"
+#include "DFRobot_AnalogSensor.h"
 
 
 class DFR_CalibrationManager{
@@ -16,7 +17,7 @@ class DFR_CalibrationManager{
             Stabilizing
         };
 
-        DFR_CalibrationManager(DFR_PH_Analog& ph_sensor, float stable_thresh_mv=10.0f, uint16_t stable_samples_req=20, uint32_t timeout_ms = 30000) : ph_(ph_sensor),
+        DFR_CalibrationManager(DFR_AnalogSensor& sensor, float stable_thresh_mv=10.0f, uint16_t stable_samples_req=20, uint32_t timeout_ms = 30000) : sensor_(sensor),
                                                                                                                                                     stable_thresh_mv_(stable_thresh_mv),
                                                                                                                                                     stable_samples_req_(stable_samples_req),
                                                                                                                                                     timeout_us_(timeout_ms *1000ULL) {}
@@ -33,12 +34,12 @@ class DFR_CalibrationManager{
             last_voltage_mv_ = NAN;
             stable_count_ = 0;
 
-            printf("Entering pH calibration mode\n");
-            printf("Place probe in pH 7 or pH 4 buffer solution\n");
+            printf("Entering calibration mode\n");
+            printf("Place probe in calibration solution\n");
             printf("Waiting for voltage to stabilize...\n");
         }
 
-        void task(float voltage_mv){
+        void task(float voltage_mv, float temperature_c = 25.0f){
             if (state_!= State::Stabilizing){
                 return;
             }
@@ -55,7 +56,7 @@ class DFR_CalibrationManager{
             last_voltage_mv_ = voltage_mv;
 
             if(stable_count_>= stable_samples_req_){
-                finish(voltage_mv);
+                finish(voltage_mv, temperature_c);
                 return;
             }
 
@@ -72,7 +73,7 @@ class DFR_CalibrationManager{
         
     
     private:
-        DFR_PH_Analog& ph_;
+        DFR_AnalogSensor& sensor_;
 
         State state_ = State::Idle;
 
@@ -84,18 +85,16 @@ class DFR_CalibrationManager{
         float last_voltage_mv_ = NAN;
         uint16_t stable_count_ = 0;
 
-        void finish(float voltage_mv){
+        void finish(float voltage_mv, float temperature_c){
             printf("Stable voltage detected: %.2f mV\n", voltage_mv);
 
-            bool ok = ph_.calibrate(voltage_mv);
+            bool ok = sensor_.calibrate(voltage_mv, temperature_c);
 
             if(ok){
-                printf("pH calibration saved\n");
-                printf("neutral_cal: %.2f, acid_cal: %.2f\n",
-                   ph_.neutralVoltage(),
-                   ph_.acidVoltage());
+                printf("calibration saved\n");
+
             }else{
-                printf("pH calibration failed\n");
+                printf("calibration failed\n");
             }
             state_ = State::Idle;
         }

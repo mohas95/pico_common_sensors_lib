@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <stdio.h>
 
+#include "DFRobot_AnalogSensor.h"
 #include "pico/stdlib.h"
 #include "hardware/flash.h"
 #include "hardware/sync.h"
@@ -30,16 +31,17 @@ enum class CalState {
 
 
 
-class DFR_PH_Analog {
+class DFR_PH_Analog : public DFR_AnalogSensor {
     public:
-        DFR_PH_Analog(bool clear_cal = false, float acid_low_thresh=1720.0f, float acid_high_thresh=2210.0f, float neutral_low_thresh= 1200.0f, float neutral_high_thresh=1678.0f) : acid_low_thresh_(acid_low_thresh),
-                                                                                                                                                                                     acid_high_thresh_(acid_high_thresh),
-                                                                                                                                                                                     neutral_low_thresh_(neutral_low_thresh),
-                                                                                                                                                                                     neutral_high_thresh_(neutral_high_thresh),
-                                                                                                                                                                                     ph_value_(7.0f),
-                                                                                                                                                                                     acid_voltage_(2032.44f),
-                                                                                                                                                                                     neutral_voltage_(1500.0f),
-                                                                                                                                                                                     temperature_(25.0f){
+        DFR_PH_Analog(bool clear_cal = false, float acid_low_thresh=1720.0f, float acid_high_thresh=2210.0f, float neutral_low_thresh= 1200.0f, float neutral_high_thresh=1678.0f, const char* label="PH") :  acid_low_thresh_(acid_low_thresh),
+                                                                                                                                                                                                              acid_high_thresh_(acid_high_thresh),
+                                                                                                                                                                                                              neutral_low_thresh_(neutral_low_thresh),
+                                                                                                                                                                                                              neutral_high_thresh_(neutral_high_thresh),
+                                                                                                                                                                                                              ph_value_(7.0f),
+                                                                                                                                                                                                              acid_voltage_(2032.44f),
+                                                                                                                                                                                                              neutral_voltage_(1500.0f),
+                                                                                                                                                                                                              temperature_(25.0f),
+                                                                                                                                                                                                              label_(label){
 
             if (clear_cal){
                 clear_cal_();
@@ -77,7 +79,7 @@ class DFR_PH_Analog {
             return ph_value_;
         }
         
-        bool calibrate(float voltage_mv){
+        bool calibrate(float voltage_mv, float temperature_c=25.0) override {
             if (voltage_mv > neutral_low_thresh_ && voltage_mv < neutral_high_thresh_) {
                 neutral_voltage_ = voltage_mv;
                 saveCalibration_();
@@ -100,6 +102,7 @@ class DFR_PH_Analog {
 
         float neutralVoltage() const {return neutral_voltage_;}
         float acidVoltage() const {return acid_voltage_;}
+        const char* label() const override {return label_;}
 
     private:
 
@@ -112,6 +115,7 @@ class DFR_PH_Analog {
         float acid_high_thresh_;
         float neutral_low_thresh_;
         float neutral_high_thresh_;
+        const char* label_;
 
 
         uint32_t checksum_(const CalibrationData& data){
