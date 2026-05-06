@@ -56,9 +56,7 @@ class DFR_PH_Analog : public DFR_AnalogSensor {
                 acid_voltage_ = 2032.44f;
                 // saveCalibration_();
 
-            printf("failed to load using defaults - neutral_cal: %.2f, acid_cal: %.2f\n", neutral_voltage_, acid_voltage_);
-
-
+                printf("%s failed to load. using defaults neutral_cal: %.2f, acid_cal: %.2f\n", label_, neutral_voltage_, acid_voltage_);
             }
 
         }
@@ -84,7 +82,7 @@ class DFR_PH_Analog : public DFR_AnalogSensor {
                 neutral_voltage_ = voltage_mv;
                 saveCalibration_();
 
-                printf("pH 7 calibration saved: %.2f mV\n", neutral_voltage_);
+                printf("%s: pH 7 calibration saved: %.2f mV\n",label_, neutral_voltage_);
                 return true;
             }
 
@@ -92,11 +90,11 @@ class DFR_PH_Analog : public DFR_AnalogSensor {
                 acid_voltage_ = voltage_mv;
                 saveCalibration_();
 
-                printf("pH 4 calibration saved: %.2f mV\n", acid_voltage_);
+                printf("%s: pH 4 calibration saved: %.2f mV\n",label_, acid_voltage_);
                 return true;
             }
 
-            printf("Voltage %.2f mV not recognized as pH 7 or pH 4 buffer.\n", voltage_mv);
+            printf("%s: Voltage %.2f mV not recognized as pH 7 or pH 4 buffer.\n", label_, voltage_mv);
             return false;
         }
 
@@ -143,7 +141,7 @@ class DFR_PH_Analog : public DFR_AnalogSensor {
             neutral_voltage_ = stored->neutral_voltage;
             acid_voltage_ = stored->acid_voltage;
 
-            printf("calibration loaded sucessfully - neutral_cal: %.2f, acid_cal: %.2f\n", neutral_voltage_, acid_voltage_);
+            printf("%s calibration loaded. neutral_cal: %.2f, acid_cal: %.2f\n", label_, neutral_voltage_, acid_voltage_);
 
 
             return true;
@@ -168,7 +166,7 @@ class DFR_PH_Analog : public DFR_AnalogSensor {
             flash_range_program(PH_FLASH_OFFSET, buffer, FLASH_SECTOR_SIZE);
 
             restore_interrupts(interrupts);
-            printf("calibration saved to flash- neutral_cal: %.2f, acid_cal: %.2f\n", neutral_voltage_, acid_voltage_);
+            printf("%s: calibration saved to flash. neutral_cal: %.2f, acid_cal: %.2f\n", label_, neutral_voltage_, acid_voltage_);
 
         }
 
@@ -176,6 +174,7 @@ class DFR_PH_Analog : public DFR_AnalogSensor {
             uint32_t interrupts = save_and_disable_interrupts();
             flash_range_erase(PH_FLASH_OFFSET, FLASH_SECTOR_SIZE);
             restore_interrupts(interrupts);
+            printf("%s: calibration cleared from flash.\n", label_);
         }
 
 

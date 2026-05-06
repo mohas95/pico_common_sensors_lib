@@ -41,13 +41,13 @@ class DFR_EC_Analog : public DFR_AnalogSensor {
             if (!loadCalibration_()) {
                 k_value_low_ = 1.0f;
                 k_value_high_ = 1.0f;
+                printf("%s failed to load. using defaults k_low: %.4f, k_high: %.4f\n", label_, k_value_low_, k_value_high_);
+
                 // saveCalibration_();
             }
 
             k_value_ = k_value_low_;
 
-            printf("EC calibration loaded. k_low: %.4f, k_high: %.4f\n",
-                k_value_low_, k_value_high_);
         }
 
         float readEC(float voltage_mv, float temperature_c = 25.0f){
@@ -81,23 +81,23 @@ class DFR_EC_Analog : public DFR_AnalogSensor {
                 // 12.88 ms/cm
                 comp_ec_solution = 12.88f * (1.0f + 0.0185f * (temperature_c - 25.0f));
             } else {
-                printf("EC calibration failed. Raw EC %.3f not recognized.\n", raw_ec_);
+                printf("%s: calibration failed. Raw EC %.3f not recognized.\n", label_, raw_ec_);
                 return false;
             }
 
             float k_temp = EC_RES2 * EC_REF * comp_ec_solution / 1000.0f / voltage_mv;
 
             if (k_temp < 0.5f || k_temp > 1.5f) {
-                printf("EC calibration failed. K %.4f out of range.\n", k_temp);
+                printf("%s: calibration failed. K %.4f out of range.\n", label_, k_temp);
                 return false;
             }
 
             if (raw_ec_ > 0.9f && raw_ec_ < 1.9f) {
                 k_value_low_ = k_temp;
-                printf("EC low calibration saved. K_low: %.4f\n", k_value_low_);
+                printf("%s: low calibration saved. K_low: %.4f\n", label_, k_value_low_);
             } else {
                 k_value_high_ = k_temp;
-                printf("EC high calibration saved. K_high: %.4f\n", k_value_high_);
+                printf("%s: high calibration saved. K_high: %.4f\n", label_, k_value_high_);
             }
 
             saveCalibration_();
@@ -140,6 +140,9 @@ class DFR_EC_Analog : public DFR_AnalogSensor {
             k_value_low_ = stored->k_value_low;
             k_value_high_ = stored->k_value_high;
 
+            printf("%s calibration loaded. k_low: %.4f, k_high: %.4f\n", label_, k_value_low_, k_value_high_);
+
+
             return true;
         }
  
@@ -160,12 +163,15 @@ class DFR_EC_Analog : public DFR_AnalogSensor {
             flash_range_program(EC_FLASH_OFFSET, buffer, FLASH_SECTOR_SIZE);
 
             restore_interrupts(interrupts);
+            printf("%s: calibration saved to flash. k_low: %.4f, k_high: %.4f\n", label_, k_value_low_, k_value_high_);
+
         }
 
         void clear_cal_() {
             uint32_t interrupts = save_and_disable_interrupts();
             flash_range_erase(EC_FLASH_OFFSET, FLASH_SECTOR_SIZE);
             restore_interrupts(interrupts);
+            printf("%s: calibration cleared from flash.\n", label_);
         }
 
 };
