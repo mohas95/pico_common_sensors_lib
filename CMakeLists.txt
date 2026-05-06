@@ -42,6 +42,7 @@ target_link_libraries(pico_common_sensors_lib
         hardware_adc
         hardware_flash
         hardware_sync
+        hardware_uart
         )
 
 # ====================================================================================
@@ -51,7 +52,8 @@ if (CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
     add_executable(pico_common_sensors_lib_standalone
         # src/onewire.cpp
         # src/DFROBOT_PH_TEST.cpp
-        src/DFROBOT_EC_TEST.cpp
+        # src/DFROBOT_EC_TEST.cpp
+        src/DFROBOT_ULTRASONIC_TEST.cpp
     )
 
     target_link_libraries(pico_common_sensors_lib_standalone pico_common_sensors_lib)
