@@ -10,13 +10,23 @@ class SHT35 : public I2CSensor {
             last_read_request_ = time_us_64();
         }
         
-        bool read() override{
-            query_read_cmd();
-            if(read_ready_){
-                bool resp = load_read_resp();
-                return resp;
+        // bool read() override{
+        //     query_read_cmd();
+        //     if(read_ready_){
+        //         bool resp = load_read_resp();
+        //         return resp;
+        //     }
+        //     return false;
+        // }
+
+        bool read() override{ //test to see if this pattern is better, ifso delete previous
+            if(!read_ready_){
+                query_read_cmd();
+                return false;
             }
-            return false;
+             
+            return load_read_resp();
+            
         }
 
         bool query_read_cmd() override{
