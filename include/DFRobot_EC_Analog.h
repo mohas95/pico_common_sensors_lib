@@ -104,6 +104,8 @@ class DFR_EC_Analog : public DFR_AnalogSensor {
             return true;
         }
 
+        float kLow() const {return k_value_low_;}
+        float kHigh() const {return k_value_high_;}
         const char* label() const override{ return label_;}
         
     private:
